@@ -146,7 +146,6 @@ fn main() -> Result<()> {
                         }
                         let newmessage: String = msg.clone().into_iter().collect();
                         _ = tx.send(State::NewMessage(newmessage));
-                        execute!(out, cursor::MoveTo(1, 2), Print("Stop by Esc key"))?;
                         msg.clear();
                         _ = tx.send(State::Resume);
                         continue;
