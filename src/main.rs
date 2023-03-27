@@ -49,18 +49,90 @@ impl Iterator for CharGen {
     }
 }
 
+struct PositionGenerator {
+    width: u16,
+    height: u16,
+    x: u16,
+    y: u16,
+    direction: Direction,
+}
+
+enum Direction {
+    Right,
+    Down,
+    Left,
+    Up,
+}
+
+impl PositionGenerator {
+    pub fn new(width: u16, height: u16) -> Self {
+        PositionGenerator {
+            width,
+            height,
+            x: 0,
+            y: 0,
+            direction: Direction::Right,
+        }
+    }
+}
+
+impl Iterator for PositionGenerator {
+    type Item = (u16, u16);
+    fn next(&mut self) -> Option<Self::Item> {
+        let (prevx, prevy) = (self.x, self.y);
+        match self.direction {
+            Direction::Right => {
+                if self.x + 1 < self.width {
+                    self.x += 1;
+                } else {
+                    self.y += 1;
+                    self.direction = Direction::Down;
+                }
+            }
+            Direction::Down => {
+                if self.y + 1 < self.height {
+                    self.y += 1;
+                } else {
+                    self.x -= 1;
+                    self.direction = Direction::Left;
+                }
+            }
+            Direction::Left => {
+                if self.x != 0 {
+                    self.x -= 1;
+                } else {
+                    self.y -= 1;
+                    self.direction = Direction::Up;
+                }
+            }
+            Direction::Up => {
+                if self.y != 0 {
+                    self.y -= 1;
+                } else {
+                    self.x += 1;
+                    self.direction = Direction::Right;
+                }
+            }
+        }
+        Some((prevx, prevy))
+    }
+}
+
 fn main() -> Result<()> {
     let mut out = stdout();
     // to accept typing Esc key
     terminal::enable_raw_mode()?;
     // clear terminal and print help messege
-    execute!(
-        out,
-        terminal::Clear(ClearType::All),
-        cursor::MoveTo(1, 2),
-        Print("Type strngs. Trace edges by Enter key. Stop by Esc key.")
-    )?;
-    // _support_check(&out);
+    let reset_terminal = || {
+        let mut out = stdout();
+        execute!(
+            out,
+            terminal::Clear(ClearType::All),
+            cursor::MoveTo(1, 2),
+            Print("Type strngs. Trace edges by Enter key. Stop by Esc key.")
+        )
+    };
+    reset_terminal()?;
 
     let (tx, rx) = mpsc::channel::<State>();
     let _current_position = cursor::position().unwrap(); // unused
@@ -68,55 +140,37 @@ fn main() -> Result<()> {
     let join_handle = thread::spawn(move || -> Result<()> {
         let (width, height) = terminal::size().unwrap();
         let mut cg = CharGen::new("hello world.");
+        let mut pg = PositionGenerator::new(width, height);
         let should_pause = |rx: &mpsc::Receiver<State>| match rx.try_recv() {
             Ok(State::Pause) => true,
             _ => false,
         };
+        let mut is_first = true;
         loop {
-            // first state is Pause
-            match rx.recv() {
-                Ok(State::NewMessage(msg)) => {
-                    cg.update(&msg);
-                    continue;
-                }
-                Ok(State::Resume) => break,
-                Ok(State::Stop) => return Ok(()),
-                _ => continue,
-            }
-        }
-        loop {
-            for i in 0..2 * (width + height) {
-                if should_pause(&rx) {
-                    // wait for changing state
-                    loop {
-                        match rx.recv() {
-                            Ok(State::NewMessage(msg)) => {
-                                cg.update(&msg);
-                                continue;
-                            }
-                            Ok(State::Resume) => break,
-                            Ok(State::Stop) => return Ok(()),
-                            _ => continue,
+            if is_first || should_pause(&rx) {
+                is_first = false;
+                // wait for changing state
+                loop {
+                    match rx.recv() {
+                        Ok(State::NewMessage(msg)) => {
+                            cg.update(&msg);
+                            continue;
                         }
+                        Ok(State::Resume) => break,
+                        Ok(State::Stop) => return Ok(()),
+                        _ => continue,
                     }
                 }
-                // calc guruguru char position
-                let (x, y) = match i {
-                    i if i < width => (i, 0),                                          // top
-                    i if width <= i && i < (width + height) => (width - 1, i - width), // right
-                    i if (width + height) <= i && i < (2 * width + height) => {
-                        (2 * width + height - i - 1, height - 1) // bottom
-                    }
-                    _ => (0, 2 * (width + height) - i - 1), // left
-                };
-                execute!(
-                    out,
-                    cursor::Hide,
-                    cursor::MoveTo(x, y),
-                    Print(cg.next().unwrap())
-                )?;
-                thread::sleep(Duration::from_millis(10));
             }
+            // calc guruguru char position
+            let (x, y) = pg.next().unwrap();
+            execute!(
+                out,
+                cursor::Hide,
+                cursor::MoveTo(x, y),
+                Print(cg.next().unwrap())
+            )?;
+            thread::sleep(Duration::from_millis(10));
         }
     });
 
@@ -189,12 +243,4 @@ fn main() -> Result<()> {
     )?;
     terminal::disable_raw_mode()?;
     Ok(())
-}
-
-fn _support_check(out: &Stdout) {
-    if out.is_tty() {
-        println!("ANSI escape sequences are supported");
-    } else {
-        println!("ANSI escape sequences are not supported");
-    }
 }
