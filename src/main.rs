@@ -223,7 +223,12 @@ fn main() -> Result<()> {
                 }
                 // update terminal for a message
                 // clear 1 line
-                _ = execute!(out, cursor::MoveTo(1, 1), Print(" ".repeat(inner_width)));
+                _ = execute!(
+                    out,
+                    cursor::MoveTo(1, 1),
+                    Print(" ".repeat(inner_width)),
+                    cursor::Show
+                );
 
                 let s: String = msg.iter().take(inner_width).collect();
 
